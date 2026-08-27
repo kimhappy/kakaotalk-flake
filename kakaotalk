@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+
+_install_desktop_shortcut() {
+  local desktop_dir="${HOME}/Desktop"
+  local source_file="${KAKAOTALK_DESKTOP_FILE:-}"
+  local target_file="${desktop_dir}/kakaotalk.desktop"
+
+  [ -d "${desktop_dir}" ] || return 0
+  [ -f "${source_file}" ] || return 0
+  cmp -s "${source_file}" "${target_file}" && return 0
+
+  cp -f "${source_file}" "${target_file}"
+  chmod u+x "${target_file}"
+}
+
+_install_wine() {
+  local home_origin="${HOME}"
+  local home_patch="${WINEPREFIX}/tmp"
+  export HOME="${home_patch}"
+
+  wineboot --init
+  wine "${KAKAOTALK_SETUP_EXE}" /S
+
+  rm -rf "${home_patch}"
+  export HOME="${home_origin}"
+
+  local home_wine
+  home_wine="$(
+    find "${WINEPREFIX}/drive_c/users" \
+      -mindepth 1 -maxdepth 1 -type d -not -name 'Public'
+  )"
+  mv "${home_wine}" "${home_wine}-bak" || true
+  ln -sf "${HOME}" "${home_wine}"
+}
+
+_detect_input_method() {
+  local candidate
+
+  for candidate in fcitx ibus kime nimf; do
+    if pgrep "${candidate}" >/dev/null; then
+      echo "${candidate}"
+      return 0
+    fi
+  done
+}
+
+main() {
+  export LANG="${LANG:-ko_KR.UTF-8}"
+  export LC_ALL="${LC_ALL:-ko_KR.UTF-8}"
+  export WINEARCH='win64'
+  export WINEPREFIX="${WINEPREFIX:-${XDG_DATA_HOME:-${HOME}/.local/share}/kakaotalk}"
+
+  local wine_exe="${WINEPREFIX}/drive_c/Program Files (x86)/Kakao/KakaoTalk/KakaoTalk.exe"
+
+  if ! [ -e "${wine_exe}" ]; then
+    _install_wine
+  fi
+
+  _install_desktop_shortcut
+
+  if ! grep -Posq '^cjkfonts$' "${WINEPREFIX}/winetricks.log" 2>/dev/null; then
+    winetricks --optout --unattended corefonts cjkfonts
+  fi
+
+  if ! echo "x${XMODIFIERS:-}" | grep -Posq '^x\*?@im='; then
+    local input_method
+    input_method="$(_detect_input_method)"
+    [ -n "${input_method}" ] && export XMODIFIERS="@im=${input_method}"
+  fi
+
+  exec wine "${wine_exe}" "$@"
+}
+
+main "$@"

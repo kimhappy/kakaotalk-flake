@@ -1,0 +1,51 @@
+name: Update KakaoTalk installer
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-installer
+  cancel-in-progress: true
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download installer
+        run: |
+          curl -fsSL \
+            -o KakaoTalk_Setup.exe.new \
+            "https://app-pc.kakaocdn.net/talk/win32/KakaoTalk_Setup.exe"
+
+      - name: Check for changes
+        id: check
+        run: |
+          if [ -f KakaoTalk_Setup.exe ] \
+            && cmp -s KakaoTalk_Setup.exe KakaoTalk_Setup.exe.new; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            rm KakaoTalk_Setup.exe.new
+            echo "Installer unchanged."
+            exit 0
+          fi
+
+          mv KakaoTalk_Setup.exe.new KakaoTalk_Setup.exe
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(sha256sum KakaoTalk_Setup.exe | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and push
+        if: steps.check.outputs.changed == 'true'
+        env:
+          SHA256: ${{ steps.check.outputs.sha256 }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add KakaoTalk_Setup.exe
+          git commit -m "chore: update KakaoTalk_Setup.exe"
+          git push
